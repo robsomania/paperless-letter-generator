@@ -76,7 +76,11 @@ const recentLetters = computed(() => {
 })
 
 function openGroup(key: string) {
-  router.push(`/letters`)
+  const [correspondent, template] = key.split('|')
+  const params = new URLSearchParams()
+  if (correspondent) params.set('correspondent', correspondent)
+  if (template) params.set('template', template)
+  router.push(`/letters?${params.toString()}`)
 }
 const connectionStatus = ref<boolean | null>(null)
 const paperlessUrl = ref('')

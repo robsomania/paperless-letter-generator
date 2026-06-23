@@ -175,6 +175,11 @@ onMounted(async () => {
     paperlessUrl.value = cRes.data.url
   } catch {}
 
+  const qCorrespondent = route.query.correspondent as string | undefined
+  const qTemplate = route.query.template as string | undefined
+  if (qCorrespondent) filterRecipient.value = qCorrespondent
+  if (qTemplate) filterTemplate.value = qTemplate
+
   if (route.query.group) {
     activeGroup.value = Number(route.query.group)
     const gid = activeGroup.value
