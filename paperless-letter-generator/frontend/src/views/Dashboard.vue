@@ -33,7 +33,7 @@
         </tr>
       </thead>
       <tbody>
-        <tr v-for="g in recentLetters" :key="g.latest.id">
+        <tr v-for="g in recentLetters" :key="g.latest.id" class="clickable-row" @click="openGroup(g.groupId)">
           <td>{{ g.latest.template_name }}</td>
           <td>{{ g.latest.correspondent_name || '-' }}</td>
           <td><span :class="'badge badge-' + g.latest.status">{{ statusLabel(g.latest.status) }}</span></td>
@@ -47,22 +47,24 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
 import AppLayout from '@/components/AppLayout.vue'
 import { templatesApi } from '@/api/templates'
 import { lettersApi, type Letter } from '@/api/letters'
 import { paperlessApi } from '@/api/paperless'
 
+const router = useRouter()
 const templateCount = ref(0)
 const draftCount = ref(0)
 const sentCount = ref(0)
 const allLetters = ref<Letter[]>([])
 const recentLetters = computed(() => {
-  const map = new Map<number, { latest: Letter; count: number }>()
+  const map = new Map<number, { groupId: number; latest: Letter; count: number }>()
   for (const l of allLetters.value) {
     const gid = l.version_group_id || l.id
     const cur = map.get(gid)
     if (!cur) {
-      map.set(gid, { latest: l, count: 1 })
+      map.set(gid, { groupId: gid, latest: l, count: 1 })
     } else {
       cur.count++
       if (new Date(l.created_at) > new Date(cur.latest.created_at)) cur.latest = l
@@ -72,6 +74,10 @@ const recentLetters = computed(() => {
     .sort((a, b) => new Date(b.latest.created_at).getTime() - new Date(a.latest.created_at).getTime())
     .slice(0, 10)
 })
+
+function openGroup(groupId: number) {
+  router.push(`/letters?group=${groupId}`)
+}
 const connectionStatus = ref<boolean | null>(null)
 const paperlessUrl = ref('')
 
@@ -106,6 +112,12 @@ function formatDate(d: string) {
 </script>
 
 <style scoped>
+.clickable-row {
+  cursor: pointer;
+}
+.clickable-row:hover {
+  background: var(--bg-hover);
+}
 .version-count {
   font-size: 0.8rem;
   color: var(--text-muted);

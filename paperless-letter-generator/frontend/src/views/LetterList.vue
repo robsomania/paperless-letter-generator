@@ -4,13 +4,31 @@
       <router-link to="/letters/compose" class="btn btn-primary">+ Neuer Brief</router-link>
     </template>
 
-    <div v-if="groups.length === 0" class="empty-state">
-      <p>Noch keine Briefe erstellt.</p>
+    <div class="filter-bar">
+      <template v-if="activeGroup !== null">
+        <span class="filter-label">Gruppe #{{ activeGroup }}</span>
+        <router-link to="/letters" class="btn btn-sm">Alle anzeigen</router-link>
+      </template>
+      <template v-else>
+        <input v-model="filterTemplate" placeholder="Template" class="filter-input" />
+        <input v-model="filterRecipient" placeholder="Empfänger" class="filter-input" />
+        <select v-model="filterStatus" class="filter-input">
+          <option value="">Alle Status</option>
+          <option value="draft">Entwurf</option>
+          <option value="generated">Generiert</option>
+          <option value="sent">Gesendet</option>
+        </select>
+        <input v-model="filterDate" type="date" class="filter-input" title="Erstellt am" />
+      </template>
+    </div>
+
+    <div v-if="filteredGroups.length === 0" class="empty-state">
+      <p>Keine Briefe gefunden.</p>
       <router-link to="/letters/compose" class="btn btn-primary">Ersten Brief erstellen</router-link>
     </div>
 
     <div v-else class="letter-groups">
-      <div v-for="g in groups" :key="g.groupId" class="letter-group">
+      <div v-for="g in filteredGroups" :key="g.groupId" :data-group-id="g.groupId" class="letter-group">
         <div class="group-header" @click="toggleExpanded(g.groupId)" :class="{ clickable: g.versions.length > 1 }">
           <div class="group-info">
             <span class="group-title">{{ g.latest.template_name }}</span>
@@ -80,6 +98,7 @@
 
 <script setup lang="ts">
 import { ref, reactive, onMounted, computed } from 'vue'
+import { useRoute } from 'vue-router'
 import AppLayout from '@/components/AppLayout.vue'
 import { lettersApi, type Letter } from '@/api/letters'
 import { paperlessApi } from '@/api/paperless'
@@ -90,9 +109,15 @@ interface LetterGroup {
   versions: Letter[]
 }
 
+const route = useRoute()
 const letters = ref<Letter[]>([])
 const paperlessUrl = ref('')
 const expanded = reactive<Record<number, boolean>>({})
+const filterTemplate = ref('')
+const filterRecipient = ref('')
+const filterStatus = ref('')
+const filterDate = ref('')
+const activeGroup = ref<number | null>(null)
 
 const groups = computed<LetterGroup[]>(() => {
   const map = new Map<number, Letter[]>()
@@ -115,6 +140,28 @@ const groups = computed<LetterGroup[]>(() => {
   return result
 })
 
+const filteredGroups = computed(() => {
+  let gs = groups.value
+  if (activeGroup.value !== null) {
+    gs = gs.filter(g => g.groupId === activeGroup.value)
+    return gs
+  }
+  const t = filterTemplate.value.toLowerCase().trim()
+  const r = filterRecipient.value.toLowerCase().trim()
+  const s = filterStatus.value
+  const d = filterDate.value
+  if (t || r || s || d) {
+    gs = gs.filter(g => {
+      if (t && !g.latest.template_name?.toLowerCase().includes(t)) return false
+      if (r && !g.latest.correspondent_name?.toLowerCase().includes(r)) return false
+      if (s && g.latest.status !== s) return false
+      if (d && g.latest.created_at?.startsWith(d)) return false
+      return true
+    })
+  }
+  return gs
+})
+
 onMounted(async () => {
   try {
     const res = await lettersApi.list()
@@ -124,6 +171,16 @@ onMounted(async () => {
     const cRes = await paperlessApi.me()
     paperlessUrl.value = cRes.data.url
   } catch {}
+
+  if (route.query.group) {
+    activeGroup.value = Number(route.query.group)
+    const gid = activeGroup.value
+    setTimeout(() => {
+      expanded[gid] = true
+      const el = document.querySelector(`[data-group-id="${gid}"]`)
+      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    }, 100)
+  }
 })
 
 function toggleExpanded(id: number) { expanded[id] = !expanded[id] }
@@ -187,6 +244,30 @@ function paperlessDocUrl(docId: string) {
 </script>
 
 <style scoped>
+.filter-bar {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin-bottom: 1rem;
+}
+.filter-input {
+  padding: 0.4rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 0.85rem;
+  min-width: 120px;
+}
+.filter-input:focus {
+  outline: none;
+  border-color: var(--primary);
+}
+.filter-label {
+  font-weight: 600;
+  font-size: 0.9rem;
+  padding: 0.4rem 0;
+}
 .letter-groups {
   display: flex;
   flex-direction: column;
