@@ -1,0 +1,23 @@
+[project]
+name = "paperless-letter-generator"
+version = "1.0.0"
+description = "Generate PDF letters from LaTeX templates, integrated with Paperless-ngx"
+requires-python = ">=3.10"
+dependencies = [
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.30.0",
+    "sqlalchemy>=2.0.0",
+    "alembic>=1.13.0",
+    "aiofiles>=24.0.0",
+    "httpx>=0.27.0",
+    "pyyaml>=6.0",
+    "pydantic-settings>=2.0.0",
+    "jinja2>=3.1.0",
+]
+
+[tool.setuptools.packages.find]
+include = ["app*"]
+
+[build-system]
+requires = ["setuptools>=75.0"]
+build-backend = "setuptools.build_meta"

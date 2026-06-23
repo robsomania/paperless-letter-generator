@@ -1,0 +1,62 @@
+<h2>Kontakte (Adressbuch)</h2>
+
+<div class="row mt-3">
+  <div class="col-md-6">
+    <div class="form-group">
+      <label>Korrespondent aus Paperless</label>
+      <select class="form-control" [(ngModel)]="selectedPaperlessId" (change)="onSelect()">
+        <option [ngValue]="null">-- Korrespondent wählen --</option>
+        <option *ngFor="let c of paperlessCorrespondents" [ngValue]="c.id">{{ c.name }}</option>
+      </select>
+    </div>
+
+    <div class="card" *ngIf="editingCorrespondent">
+      <div class="card-body">
+        <h6>Adresse für {{ editingCorrespondent.name }}</h6>
+        <div class="form-group">
+          <label>Anrede (e/r)</label>
+          <input class="form-control" [(ngModel)]="form.salutation" />
+        </div>
+        <div class="form-group">
+          <label>Firma</label>
+          <input class="form-control" [(ngModel)]="form.company" />
+        </div>
+        <div class="form-group">
+          <label>Straße</label>
+          <input class="form-control" [(ngModel)]="form.street" />
+        </div>
+        <div class="form-group">
+          <label>PLZ Ort</label>
+          <input class="form-control" [(ngModel)]="form.zip_city" />
+        </div>
+        <div class="form-group">
+          <label>Land</label>
+          <input class="form-control" [(ngModel)]="form.country" />
+        </div>
+        <button class="btn btn-primary btn-sm" (click)="save()">Speichern</button>
+        <button class="btn btn-danger btn-sm" *ngIf="editingLocalId" (click)="remove()">Löschen</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-md-6">
+    <h6>Gespeicherte Adressen</h6>
+    <table class="table table-sm" *ngIf="localProfiles.length > 0">
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Adresse</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr *ngFor="let p of localProfiles">
+          <td>{{ p.paperless_id }} - {{ p.salutation ? '(' + p.salutation + ')' : '' }}</td>
+          <td>{{ p.street }}, {{ p.zip_city }}</td>
+          <td><button class="btn btn-sm btn-outline-primary" (click)="editProfile(p)">Bearbeiten</button></td>
+        </tr>
+      </tbody>
+    </table>
+    <p *ngIf="localProfiles.length === 0" class="text-muted">Keine lokalen Adressen gespeichert.</p>
+  </div>
+</div>

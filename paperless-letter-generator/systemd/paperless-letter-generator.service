@@ -1,0 +1,21 @@
+[Unit]
+Description=Paperless Letter Generator
+After=network.target
+
+[Service]
+Type=simple
+User=paperless-letter
+Group=paperless-letter
+WorkingDirectory=/opt/paperless-letter-generator
+EnvironmentFile=/etc/paperless-letter-generator.env
+Environment=HOME=/var/lib/paperless-letter-generator
+ExecStart=/opt/paperless-letter-generator/.venv/bin/uvicorn app.main:app --host $LISTEN_HOST --port $LISTEN_PORT
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+PrivateTmp=true
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target
