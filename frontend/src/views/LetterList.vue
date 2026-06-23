@@ -36,6 +36,9 @@
           </div>
           <div class="group-actions">
             <span v-if="g.versions.length > 1" class="version-count">{{ g.versions.length }} Versionen</span>
+            <router-link :to="`/letters/compose?template=${g.latest.template_id}`" class="btn btn-sm" @click.stop>
+              Neuer Brief
+            </router-link>
             <router-link v-if="g.latest.status !== 'sent'" :to="`/letters/compose?edit=${g.latest.id}`" class="btn btn-sm" @click.stop>
               Bearbeiten
             </router-link>
