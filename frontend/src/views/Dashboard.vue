@@ -33,12 +33,12 @@
         </tr>
       </thead>
       <tbody>
-        <tr v-for="g in recentLetters" :key="g.latest.id" class="clickable-row" @click="openGroup(g.groupId)">
+        <tr v-for="g in recentLetters" :key="g.key" class="clickable-row" @click="openGroup(g.key)">
           <td>{{ g.latest.template_name }}</td>
           <td>{{ g.latest.correspondent_name || '-' }}</td>
           <td><span :class="'badge badge-' + g.latest.status">{{ statusLabel(g.latest.status) }}</span></td>
           <td>{{ formatDate(g.latest.created_at) }}</td>
-          <td><span v-if="g.count > 1" class="version-count">{{ g.count }} Versionen</span></td>
+          <td><span v-if="g.count > 1" class="version-count">{{ g.count }} Briefe</span></td>
         </tr>
       </tbody>
     </table>
@@ -59,12 +59,12 @@ const draftCount = ref(0)
 const sentCount = ref(0)
 const allLetters = ref<Letter[]>([])
 const recentLetters = computed(() => {
-  const map = new Map<number, { groupId: number; latest: Letter; count: number }>()
+  const map = new Map<string, { key: string; latest: Letter; count: number }>()
   for (const l of allLetters.value) {
-    const gid = l.version_group_id || l.id
-    const cur = map.get(gid)
+    const key = `${l.correspondent_name ?? ''}|${l.template_name}`
+    const cur = map.get(key)
     if (!cur) {
-      map.set(gid, { groupId: gid, latest: l, count: 1 })
+      map.set(key, { key, latest: l, count: 1 })
     } else {
       cur.count++
       if (new Date(l.created_at) > new Date(cur.latest.created_at)) cur.latest = l
@@ -72,11 +72,11 @@ const recentLetters = computed(() => {
   }
   return [...map.values()]
     .sort((a, b) => new Date(b.latest.created_at).getTime() - new Date(a.latest.created_at).getTime())
-    .slice(0, 10)
+    .slice(0, 20)
 })
 
-function openGroup(groupId: number) {
-  router.push(`/letters?group=${groupId}`)
+function openGroup(key: string) {
+  router.push(`/letters`)
 }
 const connectionStatus = ref<boolean | null>(null)
 const paperlessUrl = ref('')
