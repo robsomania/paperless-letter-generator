@@ -22,7 +22,7 @@ apt-get install -y -qq \
   nodejs npm \
   texlive-latex-base texlive-latex-extra \
   texlive-fonts-recommended texlive-lang-german \
-  build-essential curl 2>/dev/null
+  build-essential curl rsync 2>/dev/null
 
 echo "[2/8] Creating system user..."
 id -u "$SERVICE_USER" &>/dev/null || useradd -r -s /bin/false -m -d "$DATA_DIR" "$SERVICE_USER"
