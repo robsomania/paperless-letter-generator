@@ -31,6 +31,24 @@ logger = logging.getLogger("paperless-letter-generator.letters")
 router = APIRouter(prefix="/api/letters", tags=["letters"])
 
 
+LATEX_SPECIAL = str.maketrans({
+    "\\": "\\textbackslash{}",
+    "_": "\\_",
+    "&": "\\&",
+    "$": "\\$",
+    "#": "\\#",
+    "%": "\\%",
+    "{": "\\{",
+    "}": "\\}",
+    "~": "\\textasciitilde{}",
+    "^": "\\textasciicircum{}",
+})
+
+
+def _escape_latex(text: str) -> str:
+    return text.translate(LATEX_SPECIAL)
+
+
 def _build_encl_text(attachments: list[dict], existing_text: str = "") -> str:
     """Merge structured attachments with manually typed anlagen text."""
     lines: list[str] = []
@@ -38,28 +56,31 @@ def _build_encl_text(attachments: list[dict], existing_text: str = "") -> str:
         for part in existing_text.split(","):
             p = part.strip()
             if p:
-                lines.append(p)
+                lines.append(_escape_latex(p))
     for att in attachments:
         name = att.get("name", "").strip()
         if name:
-            lines.append(name)
+            lines.append(_escape_latex(name))
     return ", ".join(lines)
 
 
 def _add_watermark_to_page(page, label: str):
     pw = float(page.mediabox.width)
     from pypdf.annotations import FreeText
-    annot = FreeText(
-        text=label,
-        rect=(pw / 2 - 80, 20, pw / 2 + 80, 45),
-        font="Helvetica",
-        font_size="9pt",
-        font_color="808080",
-        border_color="808080",
-        border_style="dashed",
-        align="center",
-    )
-    page.add_annotation(annot)
+    try:
+        annot = FreeText(
+            text=label,
+            rect=(pw / 2 - 80, 20, pw / 2 + 80, 45),
+            font="Helvetica",
+            font_size="9pt",
+            font_color="808080",
+            border_color="808080",
+            border_style="dashed",
+            align="center",
+        )
+        page.add_annotation(annot)
+    except Exception:
+        pass
 
 
 def _download_attachment_pdf(doc_id: int) -> bytes:
@@ -96,7 +117,10 @@ def _merge_attachment_pdfs(letter_pdf: Path, attachments: list[dict], use_waterm
         for pno, page in enumerate(att_reader.pages):
             if use_watermark:
                 label = f"Anlage {idx + 1}" + (f" (S. {pno + 1})" if len(att_reader.pages) > 1 else "")
-                _add_watermark_to_page(page, label)
+                try:
+                    _add_watermark_to_page(page, label)
+                except Exception:
+                    pass
             writer.add_page(page)
 
     merged_path = letter_pdf.parent / f"{letter_pdf.stem}_merged.pdf"
