@@ -65,10 +65,16 @@ class PaperlessClient:
 
     async def search_documents(self, query: str, page_size: int = 20) -> list[dict[str, Any]]:
         c = await self.client()
-        r = await c.get("/api/documents/", params={"query": query, "page_size": page_size})
-        r.raise_for_status()
-        data = r.json()
-        return data.get("results", [])
+        seen: set[int] = set()
+        results: list[dict[str, Any]] = []
+        for param in ("query", "title__icontains"):
+            r = await c.get("/api/documents/", params={param: query, "page_size": page_size})
+            r.raise_for_status()
+            for doc in r.json().get("results", []):
+                if doc["id"] not in seen:
+                    seen.add(doc["id"])
+                    results.append(doc)
+        return results[:page_size]
 
     async def download_document_pdf(self, doc_id: int) -> bytes:
         c = await self.client()
