@@ -50,11 +50,14 @@ pip install --quiet --upgrade pip
 pip install --quiet --upgrade -e .
 
 echo "[5/8] Building frontend..."
-rm -rf "$INSTALL_DIR/static"
-cd "$INSTALL_DIR/frontend"
-npm install
-npm run build
-cd "$INSTALL_DIR"
+if [[ -f "static/index.html" ]]; then
+  echo "Using pre-built frontend from repository."
+else
+  cd frontend
+  NODE_OPTIONS="--max-old-space-size=512" npm install
+  NODE_OPTIONS="--max-old-space-size=512" npm run build
+  cd ..
+fi
 
 echo "[6/8] Configuring..."
 if [[ ! -f "$ENV_FILE" ]]; then
