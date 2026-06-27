@@ -113,6 +113,11 @@ class SenderProfileOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class AttachmentInfo(BaseModel):
+    document_id: Optional[int] = None
+    name: str
+
+
 class LetterCreate(BaseModel):
     template_id: int
     correspondent_profile_id: Optional[int] = None
@@ -120,11 +125,15 @@ class LetterCreate(BaseModel):
     source_document_id: Optional[int] = None
     field_values: dict[str, str] = {}
     version_group_id: Optional[int] = None
+    attachments: list[AttachmentInfo] = []
+    attachment_watermark: bool = True
 
 
 class LetterUpdate(BaseModel):
     field_values: Optional[dict[str, str]] = None
     status: Optional[str] = None
+    attachments: Optional[list[AttachmentInfo]] = None
+    attachment_watermark: Optional[bool] = None
 
 
 class LetterOut(BaseModel):
@@ -139,6 +148,8 @@ class LetterOut(BaseModel):
     paperless_document_id: Optional[str] = None
     version_group_id: Optional[int] = None
     field_values: dict
+    attachments: list = []
+    attachment_watermark: bool = True
     status: str
     pdf_path: Optional[str] = None
     created_at: datetime
@@ -152,6 +163,11 @@ class LetterOut(BaseModel):
         if v is None:
             return None
         return str(v)
+
+    @field_validator("attachments", mode="before")
+    @classmethod
+    def coerce_attachments(cls, v):
+        return v or []
 
 
 class PaperlessCorrespondent(BaseModel):

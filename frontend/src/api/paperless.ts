@@ -17,9 +17,18 @@ export interface PaperlessDocument {
   tags: number[]
 }
 
+export interface PaperlessDocumentSearchResult {
+  id: number
+  title: string
+  correspondent_name: string | null
+  created: string
+}
+
 export const paperlessApi = {
   me: () => api.get('/paperless/me'),
   listCorrespondents: () => api.get<PaperlessCorrespondent[]>('/paperless/correspondents'),
   getDocument: (id: number) => api.get<PaperlessDocument>(`/paperless/documents/${id}`),
   getCorrespondent: (id: number) => api.get(`/paperless/correspondents/${id}`),
+  searchDocuments: (query: string) =>
+    api.get<PaperlessDocumentSearchResult[]>(`/paperless/documents/search?q=${encodeURIComponent(query)}`),
 }

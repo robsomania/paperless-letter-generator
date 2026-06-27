@@ -2,10 +2,13 @@ import logging
 import re
 import shutil
 import tempfile
+from io import BytesIO
 from pathlib import Path
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse
+from pypdf import PdfReader, PdfWriter
 from sqlalchemy.orm import Session
 
 from app.config import settings
@@ -26,6 +29,80 @@ def _format_date(val: str) -> str:
 
 logger = logging.getLogger("paperless-letter-generator.letters")
 router = APIRouter(prefix="/api/letters", tags=["letters"])
+
+
+def _build_encl_text(attachments: list[dict], existing_text: str = "") -> str:
+    """Merge structured attachments with manually typed anlagen text."""
+    lines: list[str] = []
+    if existing_text.strip():
+        for part in existing_text.split(","):
+            p = part.strip()
+            if p:
+                lines.append(p)
+    for att in attachments:
+        name = att.get("name", "").strip()
+        if name:
+            lines.append(name)
+    return ", ".join(lines)
+
+
+def _add_watermark_to_page(page, label: str):
+    pw = float(page.mediabox.width)
+    from pypdf.annotations import FreeText
+    annot = FreeText(
+        text=label,
+        rect=(pw / 2 - 80, 20, pw / 2 + 80, 45),
+        font="Helvetica",
+        font_size="9pt",
+        font_color="808080",
+        border_color="808080",
+        border_style="dashed",
+        align="center",
+    )
+    page.add_annotation(annot)
+
+
+def _download_attachment_pdf(doc_id: int) -> bytes:
+    """Synchronously download a PDF from Paperless."""
+    base = settings.paperless_api_url.rstrip("/")
+    h = {"Accept": "application/json; version=6"}
+    if settings.paperless_api_token:
+        h["Authorization"] = f"Token {settings.paperless_api_token}"
+    with httpx.Client(base_url=base, headers=h, timeout=30) as c:
+        r = c.get(f"/api/documents/{doc_id}/download/")
+        r.raise_for_status()
+        return r.content
+
+
+def _merge_attachment_pdfs(letter_pdf: Path, attachments: list[dict], use_watermark: bool) -> Path:
+    """Download attachment PDFs from Paperless, merge with watermark option."""
+    digital = [a for a in attachments if a.get("document_id")]
+    if not digital:
+        return letter_pdf
+
+    writer = PdfWriter()
+    reader = PdfReader(str(letter_pdf))
+    for p in reader.pages:
+        writer.add_page(p)
+
+    for idx, att in enumerate(digital):
+        doc_id = att["document_id"]
+        try:
+            pdf_bytes = _download_attachment_pdf(doc_id)
+        except Exception as e:
+            logger.warning("Failed to download doc %d: %s", doc_id, e)
+            continue
+        att_reader = PdfReader(BytesIO(pdf_bytes))
+        for pno, page in enumerate(att_reader.pages):
+            if use_watermark:
+                label = f"Anlage {idx + 1}" + (f" (S. {pno + 1})" if len(att_reader.pages) > 1 else "")
+                _add_watermark_to_page(page, label)
+            writer.add_page(page)
+
+    merged_path = letter_pdf.parent / f"{letter_pdf.stem}_merged.pdf"
+    with open(merged_path, "wb") as f:
+        writer.write(f)
+    return merged_path
 
 
 @router.get("", response_model=list[LetterOut])
@@ -54,6 +131,8 @@ def create_letter(body: LetterCreate, db: Session = Depends(get_db)):
         sender_profile_id=body.sender_profile_id,
         source_document_id=body.source_document_id,
         field_values=body.field_values,
+        attachments=[a.model_dump() for a in body.attachments],
+        attachment_watermark=body.attachment_watermark,
         version_group_id=body.version_group_id,
         status="draft",
     )
@@ -97,11 +176,32 @@ def generate_letter(letter_id: int, db: Session = Depends(get_db)):
     latex_source = tmpl.latex_source
     if values.pop("_foldmarks", None) != "true":
         latex_source = re.sub(r"(\\begin{document})", r"\\KOMAoptions{foldmarks=false}\n\1", latex_source)
+
+    attachments = (letter.attachments or []) if hasattr(letter, "attachments") else []
+    if attachments:
+        encl_text = _build_encl_text(attachments, values.get("anlagen", ""))
+        if encl_text:
+            if "{{ anlagen }}" in latex_source or "{{anlagen}}" in latex_source:
+                values["anlagen"] = encl_text
+            else:
+                latex_source = re.sub(
+                    r"(\\end{letter})",
+                    r"\\encl{" + encl_text.replace("\\", "\\\\").replace("}", "\\}").replace("{", "\\{") + r"}\n\1",
+                    latex_source,
+                )
+
     letter_dir = settings.pdfs_path / str(letter.id)
     try:
         pdf = generate_pdf(latex_source, values, letter_dir)
     except LatexCompileError as e:
         raise HTTPException(422, f"LaTeX compilation failed: {e}" + (f"\n\nLog:\n{e.log}" if e.log else ""))
+
+    if attachments:
+        try:
+            pdf = _merge_attachment_pdfs(pdf, attachments, bool(letter.attachment_watermark))
+        except Exception as e:
+            logger.warning("Failed to merge attachment PDFs: %s", e)
+
     letter.status = "generated"
     letter.pdf_path = str(pdf)
     db.commit()

@@ -113,10 +113,67 @@
           <textarea v-if="field.type === 'textarea'" v-model="fieldValues[field.name]" :placeholder="field.label" rows="4"></textarea>
           <input v-else :type="field.type === 'date' ? 'date' : 'text'" v-model="fieldValues[field.name]" :placeholder="field.label" />
         </div>
+
+        <hr style="margin: 1rem 0; border: none; border-top: 1px solid var(--border);" />
+
+        <div class="form-group">
+          <label>Anlagen</label>
+          <div class="attachments-list">
+            <div v-for="(att, idx) in attachmentsRef" :key="idx" class="attachment-item">
+              <input v-model="att.name" class="attachment-name" placeholder="Name der Anlage" />
+              <span class="attachment-type-badge" :class="att.document_id ? 'badge-digital' : 'badge-manual'">
+                {{ att.document_id ? 'PDF' : 'MAN' }}
+              </span>
+              <button class="btn btn-sm btn-danger" @click="removeAttachment(idx)">✕</button>
+            </div>
+          </div>
+          <div class="btn-group" style="margin-top: 0.4rem;">
+            <button class="btn btn-sm" @click="showAttachmentModal = true">+ Anlage hinzufügen</button>
+          </div>
+          <label class="checkbox-label" style="margin-top: 0.5rem; display: flex; align-items: center; gap: 0.4rem;">
+            <input type="checkbox" v-model="attachmentWatermark" />
+            Wasserzeichen auf Anlagen-Seiten (Anlage X von Y)
+          </label>
+        </div>
       </div>
 
       <div>
         <PdfPreview :pdfUrl="pdfUrl" :loading="generating" :error="pdfError" />
+      </div>
+    </div>
+
+    <!-- Attachment Modal -->
+    <div v-if="showAttachmentModal" class="modal-overlay" @click.self="showAttachmentModal = false">
+      <div class="modal-content">
+        <h3 style="margin-bottom: 0.75rem;">Dokument aus Paperless auswählen</h3>
+        <div class="form-group">
+          <input
+            ref="searchInputRef"
+            v-model="attachmentSearchQuery"
+            placeholder="Suche in Paperless..."
+            @input="onAttachmentSearch"
+          />
+        </div>
+        <div class="modal-manual-row">
+          <button class="btn btn-sm" @click="openManualAttachment">+ Manuelle Anlage (ohne PDF)</button>
+        </div>
+        <div v-if="attachmentSearchResults.length > 0" class="modal-results">
+          <div
+            v-for="doc in attachmentSearchResults"
+            :key="doc.id"
+            class="modal-result-item"
+            @click="selectAttachment(doc)"
+          >
+            <strong>{{ doc.title }}</strong>
+            <span class="result-meta">{{ doc.correspondent_name || '-' }} · {{ formatDate(doc.created) }}</span>
+          </div>
+        </div>
+        <div v-else-if="attachmentSearchQuery && !attachmentSearching" class="empty-state">
+          <p>Keine Dokumente gefunden.</p>
+        </div>
+        <div class="btn-group" style="margin-top: 0.75rem;">
+          <button class="btn" @click="showAttachmentModal = false">Abbrechen</button>
+        </div>
       </div>
     </div>
   </AppLayout>
@@ -128,8 +185,8 @@ import { useRoute, onBeforeRouteUpdate } from 'vue-router'
 import AppLayout from '@/components/AppLayout.vue'
 import PdfPreview from '@/components/PdfPreview.vue'
 import { templatesApi, type LaTeXTemplate, type DiscoveredVariable } from '@/api/templates'
-import { lettersApi } from '@/api/letters'
-import { paperlessApi, type PaperlessCorrespondent, type PaperlessDocument } from '@/api/paperless'
+import { lettersApi, type AttachmentInfo } from '@/api/letters'
+import { paperlessApi, type PaperlessCorrespondent, type PaperlessDocument, type PaperlessDocumentSearchResult } from '@/api/paperless'
 import { correspondentsApi, type CorrespondentProfile } from '@/api/correspondents'
 
 type CorrespondentOption = PaperlessCorrespondent | CorrespondentProfile | typeof MANUAL | null
@@ -161,6 +218,15 @@ const formFields = ref<DiscoveredVariable[]>([])
 const fieldValues = reactive<Record<string, string>>({})
 const letterId = ref<number | null>(null)
 const letterStatus = ref<'draft' | 'generated' | 'sent' | ''>('')
+const searchInputRef = ref<HTMLInputElement | null>(null)
+const attachmentsRef = ref<AttachmentInfo[]>([])
+const attachmentWatermark = ref(false)
+const showAttachmentModal = ref(false)
+const attachmentSearchQuery = ref('')
+const attachmentSearchResults = ref<PaperlessDocumentSearchResult[]>([])
+const attachmentSearching = ref(false)
+let attachmentSearchTimer: ReturnType<typeof setTimeout> | null = null
+
 const generating = ref(false)
 const sending = ref(false)
 const pdfUrl = ref<string | null>(null)
@@ -265,6 +331,13 @@ async function loadEditLetter(id: number, newGroup: boolean = false) {
       } catch {}
     }
 
+    if (letter.attachments) {
+      attachmentsRef.value = letter.attachments.filter(a => a.name || a.document_id)
+    } else {
+      attachmentsRef.value = []
+    }
+    attachmentWatermark.value = letter.attachment_watermark ?? false
+
     try {
       const pdfRes = await lettersApi.download(id)
       pdfUrl.value = URL.createObjectURL(pdfRes.data as Blob)
@@ -289,6 +362,8 @@ async function resetToNew() {
   pdfError.value = null
   formFields.value = []
   foldmarks.value = true
+  attachmentsRef.value = []
+  attachmentWatermark.value = false
   for (const k of Object.keys(fieldValues)) delete fieldValues[k]
 }
 
@@ -422,6 +497,8 @@ async function generatePdf() {
       sender_profile_id: selectedSender.value && selectedSender.value !== MANUAL ? selectedSender.value.id : null,
       source_document_id: sourceDocumentId.value,
       field_values: fv,
+      attachments: attachmentsRef.value,
+      attachment_watermark: attachmentWatermark.value,
       version_group_id: editVersionGroupId.value,
     })
     letterId.value = res.data.id
@@ -453,6 +530,45 @@ async function sendToPaperless() {
   }
 }
 
+function onAttachmentSearch() {
+  if (attachmentSearchTimer) clearTimeout(attachmentSearchTimer)
+  if (!attachmentSearchQuery.value.trim()) {
+    attachmentSearchResults.value = []
+    return
+  }
+  attachmentSearching.value = true
+  attachmentSearchTimer = setTimeout(async () => {
+    try {
+      const res = await paperlessApi.searchDocuments(attachmentSearchQuery.value)
+      attachmentSearchResults.value = res.data
+    } catch {
+      attachmentSearchResults.value = []
+    } finally {
+      attachmentSearching.value = false
+    }
+  }, 300)
+}
+
+function selectAttachment(doc: PaperlessDocumentSearchResult) {
+  attachmentsRef.value.push({ document_id: doc.id, name: doc.title })
+  closeAttachmentModal()
+}
+
+function openManualAttachment() {
+  attachmentsRef.value.push({ document_id: null, name: '' })
+  closeAttachmentModal()
+}
+
+function closeAttachmentModal() {
+  showAttachmentModal.value = false
+  attachmentSearchQuery.value = ''
+  attachmentSearchResults.value = []
+}
+
+function removeAttachment(idx: number) {
+  attachmentsRef.value.splice(idx, 1)
+}
+
 function formatDate(d: string) {
   return new Date(d).toLocaleDateString('de-DE')
 }
@@ -464,5 +580,97 @@ function formatDate(d: string) {
   flex-direction: column;
   gap: 0.4rem;
   margin-top: 0.5rem;
+}
+
+.attachments-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.attachment-item {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.attachment-name {
+  flex: 1;
+}
+
+.attachment-type-badge {
+  font-size: 0.65rem;
+  padding: 0.1rem 0.3rem;
+  border-radius: 3px;
+  font-weight: 600;
+}
+
+.badge-digital {
+  background: var(--accent);
+  color: #fff;
+}
+
+.badge-manual {
+  background: var(--border);
+  color: var(--text);
+}
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.modal-content {
+  background: var(--bg);
+  border-radius: 8px;
+  padding: 1.25rem;
+  min-width: 360px;
+  max-width: 500px;
+  width: 90%;
+  box-shadow: 0 4px 24px rgba(0,0,0,0.3);
+}
+
+.modal-manual-row {
+  margin: 0.5rem 0;
+}
+
+.modal-results {
+  max-height: 280px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.modal-result-item {
+  padding: 0.5rem 0.75rem;
+  cursor: pointer;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.modal-result-item:hover {
+  background: var(--bg-hover);
+}
+
+.modal-result-item:last-child {
+  border-bottom: none;
+}
+
+.result-meta {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+}
+
+.empty-state {
+  padding: 1rem;
+  text-align: center;
+  color: var(--text-secondary);
 }
 </style>

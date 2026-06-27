@@ -63,6 +63,19 @@ class PaperlessClient:
         r.raise_for_status()
         return r.json()
 
+    async def search_documents(self, query: str, page_size: int = 20) -> list[dict[str, Any]]:
+        c = await self.client()
+        r = await c.get("/api/documents/", params={"query": query, "page_size": page_size})
+        r.raise_for_status()
+        data = r.json()
+        return data.get("results", [])
+
+    async def download_document_pdf(self, doc_id: int) -> bytes:
+        c = await self.client()
+        r = await c.get(f"/api/documents/{doc_id}/download/")
+        r.raise_for_status()
+        return r.content
+
     async def get_correspondent(self, corr_id: int) -> dict[str, Any] | None:
         c = await self.client()
         r = await c.get(f"/api/correspondents/{corr_id}/")

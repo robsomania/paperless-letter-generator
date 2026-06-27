@@ -67,3 +67,22 @@ async def get_correspondent(correspondent_id: int):
         raise
     except Exception as e:
         raise HTTPException(502, f"Failed to fetch correspondent: {e}")
+
+
+@router.get("/documents/search")
+async def search_documents(q: str = ""):
+    if not q.strip():
+        return []
+    try:
+        data = await paperless_client.search_documents(q.strip())
+        result: list[dict] = []
+        for d in data:
+            result.append({
+                "id": d["id"],
+                "title": d.get("title", ""),
+                "correspondent_name": d.get("correspondent_name"),
+                "created": d.get("created"),
+            })
+        return result
+    except Exception as e:
+        raise HTTPException(502, f"Failed to search documents: {e}")

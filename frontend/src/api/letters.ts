@@ -1,5 +1,10 @@
 import api from './client'
 
+export interface AttachmentInfo {
+  document_id: number | null
+  name: string
+}
+
 export interface Letter {
   id: number
   template_id: number
@@ -12,6 +17,8 @@ export interface Letter {
   paperless_document_id: string | null
   version_group_id: number | null
   field_values: Record<string, string>
+  attachments: AttachmentInfo[]
+  attachment_watermark: boolean
   status: 'draft' | 'generated' | 'sent'
   pdf_path: string | null
   created_at: string
@@ -27,6 +34,8 @@ export const lettersApi = {
     sender_profile_id?: number | null
     source_document_id?: number | null
     field_values: Record<string, string>
+    attachments?: AttachmentInfo[]
+    attachment_watermark?: boolean
     version_group_id?: number | null
   }) => api.post<Letter>('/letters', data),
   update: (id: number, data: Partial<Letter>) => api.put<Letter>(`/letters/${id}`, data),

@@ -66,6 +66,8 @@ class Letter(Base):
     version_group_id = Column(Integer, nullable=True)
 
     field_values = Column(JSON, default=dict)
+    attachments = Column(JSON, default=list)
+    attachment_watermark = Column(Boolean, default=True)
     status = Column(String(50), default="draft")
     pdf_path = Column(String(500), nullable=True)
 
