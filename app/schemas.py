@@ -149,7 +149,7 @@ class LetterOut(BaseModel):
     version_group_id: Optional[int] = None
     field_values: dict
     attachments: list = []
-    attachment_watermark: bool = True
+    attachment_watermark: bool = False
     status: str
     pdf_path: Optional[str] = None
     created_at: datetime
@@ -168,6 +168,11 @@ class LetterOut(BaseModel):
     @classmethod
     def coerce_attachments(cls, v):
         return v or []
+
+    @field_validator("attachment_watermark", mode="before")
+    @classmethod
+    def coerce_attachment_watermark(cls, v):
+        return v if v is not None else False
 
 
 class PaperlessCorrespondent(BaseModel):
