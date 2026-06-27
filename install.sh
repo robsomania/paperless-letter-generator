@@ -7,10 +7,9 @@ SERVICE_NAME="paperless-letter-generator"
 SERVICE_USER="paperless-letter"
 ENV_FILE="/etc/paperless-letter-generator.env"
 
-echo "=== Paperless Letter Generator Installation ==="
+echo "=== Paperless Letter Generator Installation / Update ==="
 echo ""
 
-# --- Prerequisites ---
 if [[ $EUID -ne 0 ]]; then
   echo "This script must be run as root (sudo)." >&2
   exit 1
@@ -25,38 +24,38 @@ apt-get install -y -qq \
   texlive-fonts-recommended texlive-lang-german \
   build-essential curl 2>/dev/null
 
-# --- Create user ---
 echo "[2/8] Creating system user..."
 id -u "$SERVICE_USER" &>/dev/null || useradd -r -s /bin/false -m -d "$DATA_DIR" "$SERVICE_USER"
 
-# --- Create directories ---
-echo "[3/8] Creating directories..."
+echo "[3/8] Copying files..."
 mkdir -p "$INSTALL_DIR" "$DATA_DIR"
-cp -r . "$INSTALL_DIR"
+rsync -a --delete \
+  --exclude='node_modules' \
+  --exclude='.venv' \
+  --exclude='__pycache__' \
+  --exclude='*.pyc' \
+  --exclude='.git' \
+  . "$INSTALL_DIR"
+find "$INSTALL_DIR" -name '__pycache__' -type d -exec rm -rf {} + 2>/dev/null || true
+find "$INSTALL_DIR" -name '*.pyc' -delete 2>/dev/null || true
 chown -R "$SERVICE_USER:$SERVICE_USER" "$DATA_DIR"
 chown -R root:root "$INSTALL_DIR"
 chmod -R 755 "$INSTALL_DIR"
 
-# --- Python venv ---
 echo "[4/8] Setting up Python virtual environment..."
 cd "$INSTALL_DIR"
 python3 -m venv .venv
 source .venv/bin/activate
 pip install --quiet --upgrade pip
-pip install --quiet -e .
+pip install --quiet --upgrade -e .
 
-# --- Build frontend ---
 echo "[5/8] Building frontend..."
-if [[ -f "$INSTALL_DIR/static/index.html" ]]; then
-  echo "Frontend already built, skipping."
-else
-  cd "$INSTALL_DIR/frontend"
-  npm install
-  npm run build
-  cd "$INSTALL_DIR"
-fi
+rm -rf "$INSTALL_DIR/static"
+cd "$INSTALL_DIR/frontend"
+npm install
+npm run build
+cd "$INSTALL_DIR"
 
-# --- Configuration ---
 echo "[6/8] Configuring..."
 if [[ ! -f "$ENV_FILE" ]]; then
   echo ""
@@ -81,7 +80,6 @@ else
   source "$ENV_FILE"
 fi
 
-# --- Database migration ---
 echo "[7/8] Running database migrations..."
 source .venv/bin/activate
 cd "$INSTALL_DIR"
@@ -90,62 +88,6 @@ export $(grep -v '^#' "$ENV_FILE" | xargs)
 DATABASE_URL="sqlite:///${DATA_DIR}/data.db"
 alembic upgrade head
 
-# --- Seed default templates ---
-python3 -c "
-import sqlite3, uuid
-db_path = '$DATA_DIR/data.db'
-conn = sqlite3.connect(db_path)
-cur = conn.cursor()
-count = cur.execute('SELECT COUNT(*) FROM latex_templates').fetchone()[0]
-if count == 0:
-    import json
-    templates = [
-        ('Formeller Geschäftsbrief', 'Standard Geschäftsbrief nach DIN 5008 mit scrlttr2',
-         open('$INSTALL_DIR/app/default_templates/formal_business.tex').read(),
-         json.dumps({
-             'sender_name': {'label': 'Absender Name', 'type': 'text', 'required': True},
-             'sender_street': {'label': 'Straße', 'type': 'text', 'required': True},
-             'sender_zip_city': {'label': 'PLZ Ort', 'type': 'text', 'required': True},
-             'sender_email': {'label': 'E-Mail', 'type': 'text', 'required': False},
-             'sender_phone': {'label': 'Telefon', 'type': 'text', 'required': False},
-             'recipient_name': {'label': 'Empfänger Name', 'type': 'text', 'required': True},
-             'recipient_gender': {'label': 'Anrede (e/r)', 'type': 'text', 'required': False},
-             'recipient_company': {'label': 'Firma', 'type': 'text', 'required': False},
-             'recipient_street': {'label': 'Straße', 'type': 'text', 'required': True},
-             'recipient_zip_city': {'label': 'PLZ Ort', 'type': 'text', 'required': True},
-             'subject': {'label': 'Betreff', 'type': 'text', 'required': True},
-             'place': {'label': 'Ort', 'type': 'text', 'required': False},
-             'date': {'label': 'Datum', 'type': 'date', 'required': True},
-             'body': {'label': 'Text', 'type': 'textarea', 'required': True},
-         })),
-        ('Persönlicher Brief', 'Informeller persönlicher Brief',
-         open('$INSTALL_DIR/app/default_templates/personal.tex').read(),
-         json.dumps({
-             'sender_name': {'label': 'Absender Name', 'type': 'text', 'required': True},
-             'sender_street': {'label': 'Straße', 'type': 'text', 'required': True},
-             'sender_zip_city': {'label': 'PLZ Ort', 'type': 'text', 'required': True},
-             'recipient_name': {'label': 'Empfänger Name', 'type': 'text', 'required': True},
-             'recipient_gender': {'label': 'Anrede (e/r)', 'type': 'text', 'required': False},
-             'recipient_street': {'label': 'Straße', 'type': 'text', 'required': True},
-             'recipient_zip_city': {'label': 'PLZ Ort', 'type': 'text', 'required': True},
-             'subject': {'label': 'Betreff', 'type': 'text', 'required': False},
-             'place': {'label': 'Ort', 'type': 'text', 'required': False},
-             'date': {'label': 'Datum', 'type': 'date', 'required': True},
-             'body': {'label': 'Text', 'type': 'textarea', 'required': True},
-             'closing': {'label': 'Grußformel', 'type': 'text', 'required': False},
-         })),
-    ]
-    cur.executemany(
-        'INSERT INTO latex_templates (name, description, latex_source, variable_config, created_at, updated_at) VALUES (?, ?, ?, ?, datetime(), datetime())',
-        templates
-    )
-    conn.commit()
-    print('Default templates seeded.')
-else:
-    print('Templates already exist, skipping seed.')
-conn.close()
-"
-
 echo "[8/8] Installing systemd service..."
 cp "$INSTALL_DIR/systemd/$SERVICE_NAME.service" /etc/systemd/system/
 systemctl daemon-reload
@@ -153,7 +95,7 @@ systemctl enable "$SERVICE_NAME"
 systemctl restart "$SERVICE_NAME"
 
 echo ""
-echo "=== Installation complete! ==="
+echo "=== Installation / Update complete! ==="
 echo ""
 echo "Service: $SERVICE_NAME"
 source "$ENV_FILE"
